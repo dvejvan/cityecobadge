@@ -38,18 +38,43 @@ export default function ContactForm() {
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
+  async function onSubmit(values: z.infer<typeof formSchema>) {
     console.log("Contact form submitted:", values);
     setIsSubmitting(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsSubmitting(false);
-      form.reset();
-      toast.success("Nachricht erfolgreich gesendet", {
-        description: "Vielen Dank für Ihre Nachricht. Wir werden uns so schnell wie möglich bei Ihnen melden.",
+    try {
+      const response = await fetch('/api/prestashop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'contact',
+          ...values
+        })
       });
-    }, 1500);
+
+      const result = await response.json();
+      console.log('Contact form API response:', result);
+
+      if (result.success) {
+        form.reset();
+        toast.success("Nachricht erfolgreich gesendet", {
+          description: result.mock 
+            ? "Nachricht wurde zur manuellen Bearbeitung gespeichert."
+            : "Vielen Dank für Ihre Nachricht. Wir werden uns so schnell wie möglich bei Ihnen melden.",
+        });
+      } else {
+        throw new Error(result.error || 'Unbekannter Fehler');
+      }
+    } catch (error: any) {
+      console.error('Contact form submission error:', error);
+      toast.error("Fehler beim Senden", {
+        description: "Es gab ein Problem beim Senden Ihrer Nachricht. Bitte versuchen Sie es später erneut.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (

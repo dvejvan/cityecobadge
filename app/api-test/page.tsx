@@ -11,26 +11,33 @@ export default function APITestPage() {
   const [isTestingOrder, setIsTestingOrder] = useState(false);
   const [connectionResult, setConnectionResult] = useState<any>(null);
   const [orderResult, setOrderResult] = useState<any>(null);
+  const [serverLogs, setServerLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
 
   const testConnection = async () => {
     console.log('Testing PrestaShop connection...');
     setIsTestingConnection(true);
     setConnectionResult(null);
+    setServerLogs([]);
 
     try {
       const response = await fetch('/api/prestashop', {
-        method: 'POST',
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'testConnection'
-        })
+        }
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
       const result = await response.json();
       console.log('Connection test result:', result);
       setConnectionResult(result);
+      
+      // Fetch server logs after the connection test
+      setTimeout(fetchServerLogs, 1000);
     } catch (error) {
       console.error('Connection test error:', error);
       setConnectionResult({
@@ -38,8 +45,23 @@ export default function APITestPage() {
         error: 'Network error',
         details: error instanceof Error ? error.message : 'Unknown error'
       });
+      
+      // Fetch server logs even on error
+      setTimeout(fetchServerLogs, 1000);
     } finally {
       setIsTestingConnection(false);
+    }
+  };
+
+  const fetchServerLogs = async () => {
+    try {
+      const response = await fetch('/api/logs');
+      if (response.ok) {
+        const logs = await response.json();
+        setServerLogs(logs.map((log: any) => `${log.time}: ${log.log}`));
+      }
+    } catch (error) {
+      console.log('Failed to fetch logs:', error);
     }
   };
 
@@ -47,6 +69,7 @@ export default function APITestPage() {
     console.log('Testing order creation...');
     setIsTestingOrder(true);
     setOrderResult(null);
+    setServerLogs([]);
 
     try {
       const response = await fetch('/api/prestashop', {
@@ -55,23 +78,30 @@ export default function APITestPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'createOrder',
-          data: {
-            firstName: 'Test',
-            lastName: 'User',
-            email: 'test@example.com',
-            phone: '+49123456789',
-            licensePlate: 'M-TEST 123',
-            fuelType: 'benzin',
-            year: '2020',
-            shippingType: 'standard'
-          }
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'test@example.com',
+          phone: '+49123456789',
+          street: 'Musterstraße 1',
+          city: 'Berlin',
+          postalCode: '12345',
+          licensePlate: 'M-TEST 123',
+          fuelType: 'benzin',
+          year: '2020',
+          shippingType: 'standard'
         })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
       const result = await response.json();
       console.log('Order test result:', result);
       setOrderResult(result);
+      
+      // Fetch server logs after the test
+      setTimeout(fetchServerLogs, 1000);
     } catch (error) {
       console.error('Order test error:', error);
       setOrderResult({
@@ -161,6 +191,35 @@ export default function APITestPage() {
                       {JSON.stringify(connectionResult.details, null, 2)}
                     </pre>
                   )}
+                  
+                  <div className="pt-3 border-t">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowLogs(!showLogs)}
+                      className="w-full mb-2"
+                    >
+                      {showLogs ? 'Skrýt server logy' : 'Zobrazit server logy'}
+                    </Button>
+                    
+                    {showLogs && (
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-sm font-medium">Server logy:</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={fetchServerLogs}
+                          >
+                            Obnovit logy
+                          </Button>
+                        </div>
+                        <pre className="text-xs bg-black text-green-400 p-3 rounded overflow-auto max-h-60 border font-mono">
+                          {serverLogs.length > 0 ? serverLogs.join('\n') : 'Žádné logy k zobrazení...'}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -194,7 +253,7 @@ export default function APITestPage() {
               </Button>
 
               {orderResult && (
-                <div className="border rounded-lg p-4 space-y-2">
+                <div className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">Výsledek:</span>
                     <div className="flex items-center gap-2">
@@ -203,29 +262,103 @@ export default function APITestPage() {
                     </div>
                   </div>
                   
-                  {orderResult.orderId && (
-                    <p className="text-sm text-green-600">
-                      Order ID: {orderResult.orderId}
-                    </p>
+                  {orderResult.message && (
+                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                      <p className="text-sm text-blue-800 font-medium">Zpráva:</p>
+                      <p className="text-sm text-blue-700">{orderResult.message}</p>
+                    </div>
                   )}
                   
-                  {orderResult.customerId && (
-                    <p className="text-sm text-blue-600">
-                      Customer ID: {orderResult.customerId}
-                    </p>
+                  {orderResult.mock && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
+                      <p className="text-sm text-yellow-800 font-medium">⚠️ Mock režim aktivní</p>
+                      <p className="text-xs text-yellow-700">Objednávka byla vytvořena v mock režimu kvůli problémům s API</p>
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    {orderResult.orderId && (
+                      <div>
+                        <span className="font-medium text-green-600">Order ID:</span>
+                        <p className="font-mono text-green-700">{orderResult.orderId}</p>
+                      </div>
+                    )}
+                    
+                    {orderResult.customerId && (
+                      <div>
+                        <span className="font-medium text-blue-600">Customer ID:</span>
+                        <p className="font-mono text-blue-700">{orderResult.customerId}</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {orderResult.apiError && (
+                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                      <p className="text-sm text-red-800 font-medium">API Chyba:</p>
+                      <p className="text-sm text-red-700">{orderResult.apiError}</p>
+                    </div>
                   )}
                   
                   {orderResult.error && (
-                    <p className="text-sm text-red-600">
-                      Error: {orderResult.error}
-                    </p>
+                    <div className="bg-red-50 border border-red-200 rounded p-3">
+                      <p className="text-sm text-red-800 font-medium">Chyba:</p>
+                      <p className="text-sm text-red-700">{orderResult.error}</p>
+                    </div>
+                  )}
+                  
+                  {orderResult.order && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Detaily objednávky:</p>
+                      <pre className="text-xs bg-gray-100 p-3 rounded overflow-auto max-h-32 border">
+                        {JSON.stringify(orderResult.order, null, 2)}
+                      </pre>
+                    </div>
                   )}
                   
                   {orderResult.details && (
-                    <pre className="text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32">
-                      {JSON.stringify(orderResult.details, null, 2)}
-                    </pre>
+                    <div>
+                      <p className="text-sm font-medium mb-2">Technické detaily:</p>
+                      <pre className="text-xs bg-gray-100 p-3 rounded overflow-auto max-h-32 border">
+                        {JSON.stringify(orderResult.details, null, 2)}
+                      </pre>
+                    </div>
                   )}
+                  
+                  <div>
+                    <p className="text-sm font-medium mb-2">Kompletní odpověď:</p>
+                    <pre className="text-xs bg-gray-50 p-3 rounded overflow-auto max-h-40 border">
+                      {JSON.stringify(orderResult, null, 2)}
+                    </pre>
+                  </div>
+                  
+                  <div className="pt-3 border-t">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowLogs(!showLogs)}
+                      className="w-full mb-2"
+                    >
+                      {showLogs ? 'Skrýt server logy' : 'Zobrazit server logy'}
+                    </Button>
+                    
+                    {showLogs && (
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <p className="text-sm font-medium">Server logy:</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={fetchServerLogs}
+                          >
+                            Obnovit logy
+                          </Button>
+                        </div>
+                        <pre className="text-xs bg-black text-green-400 p-3 rounded overflow-auto max-h-60 border font-mono">
+                          {serverLogs.length > 0 ? serverLogs.join('\n') : 'Žádné logy k zobrazení...'}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -241,7 +374,7 @@ export default function APITestPage() {
             <div className="grid md:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="font-medium">PrestaShop URL:</span>
-                <p className="text-muted-foreground">http://cityecobadge.eu</p>
+                <p className="text-muted-foreground">https://cityecobadge.eu</p>
               </div>
               <div>
                 <span className="font-medium">API Endpoint:</span>
@@ -249,7 +382,7 @@ export default function APITestPage() {
               </div>
               <div>
                 <span className="font-medium">API Key:</span>
-                <p className="text-muted-foreground font-mono">6SZK...AGNV</p>
+                <p className="text-muted-foreground font-mono">KNG7...6ZTV</p>
               </div>
               <div>
                 <span className="font-medium">Output Format:</span>
@@ -261,8 +394,11 @@ export default function APITestPage() {
 
         {/* Link back to main site */}
         <div className="text-center mt-8">
-          <Button variant="outline" onClick={() => window.location.href = '/'}>
-            Zpět na hlavní stránku
+          <Button 
+            variant="outline" 
+            asChild
+          >
+            <a href="/">Zpět na hlavní stránku</a>
           </Button>
         </div>
       </div>
