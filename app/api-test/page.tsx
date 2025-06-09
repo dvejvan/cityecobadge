@@ -13,6 +13,8 @@ export default function APITestPage() {
   const [orderResult, setOrderResult] = useState<any>(null);
   const [serverLogs, setServerLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(false);
+  const [connectionLogs, setConnectionLogs] = useState<string[]>([]);
+  const [isDiagnosticRunning, setIsDiagnosticRunning] = useState(false);
 
   const testConnection = async () => {
     console.log('Testing PrestaShop connection...');
@@ -111,6 +113,44 @@ export default function APITestPage() {
       });
     } finally {
       setIsTestingOrder(false);
+    }
+  };
+
+  const runDiagnostic = async () => {
+    try {
+      setIsDiagnosticRunning(true);
+      setConnectionLogs(['🔍 Spouštím pokročilou diagnostiku...']);
+      
+      // Call debug endpoint with GET method
+      const debugResponse = await fetch('/api/debug', {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const debugData = await debugResponse.json();
+      console.log('🔍 Debug data:', debugData);
+      
+      setConnectionLogs(prev => [
+        ...prev,
+        `🔍 Environment: ${debugData.debug?.environment || 'unknown'}`,
+        `🔍 Vercel Region: ${debugData.debug?.region || 'unknown'}`,
+        `🔍 Has API Key: ${debugData.debug?.hasApiKey ? '✅ Ano' : '❌ Ne'}`,
+        `🔍 PrestaShop URL: ${debugData.debug?.hasPrestashopUrl ? '✅ Nastaveno' : '❌ Chybí'}`,
+        `🔍 External HTTPS: ${debugData.debug?.networkTest?.externalHttps || 'N/A'}`,
+        `🔍 API Timeout: ${debugData.debug?.networkTest?.apiTimeout || 'N/A'}`,
+        '🔍 Detaily uloženy do console.log'
+      ]);
+      
+      // Get server logs too
+      const logsResponse = await fetch('/api/logs');
+      const logsData = await logsResponse.json();
+      setServerLogs(logsData.map((log: any) => `${log.time}: ${log.log}`));
+      
+    } catch (error) {
+      console.error('Debug failed:', error);
+      setConnectionLogs(prev => [...prev, `❌ Debug failed: ${error}`]);
+    } finally {
+      setIsDiagnosticRunning(false);
     }
   };
 
@@ -330,35 +370,6 @@ export default function APITestPage() {
                       {JSON.stringify(orderResult, null, 2)}
                     </pre>
                   </div>
-                  
-                  <div className="pt-3 border-t">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => setShowLogs(!showLogs)}
-                      className="w-full mb-2"
-                    >
-                      {showLogs ? 'Skrýt server logy' : 'Zobrazit server logy'}
-                    </Button>
-                    
-                    {showLogs && (
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <p className="text-sm font-medium">Server logy:</p>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={fetchServerLogs}
-                          >
-                            Obnovit logy
-                          </Button>
-                        </div>
-                        <pre className="text-xs bg-black text-green-400 p-3 rounded overflow-auto max-h-60 border font-mono">
-                          {serverLogs.length > 0 ? serverLogs.join('\n') : 'Žádné logy k zobrazení...'}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
             </CardContent>
@@ -395,43 +406,28 @@ export default function APITestPage() {
               <h3 className="font-semibold mb-4 text-lg">🔍 Pokročilá diagnostika</h3>
               <div className="space-y-3">
                 <Button
-                  onClick={async () => {
-                    try {
-                      setConnectionLogs(['🔍 Spouštím pokročilou diagnostiku...']);
-                      
-                      // Call debug endpoint
-                      const debugResponse = await fetch('/api/debug', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ test: 'production_debug' })
-                      });
-                      
-                      const debugData = await debugResponse.json();
-                      console.log('🔍 Debug data:', debugData);
-                      
-                      setConnectionLogs(prev => [
-                        ...prev,
-                        `🔍 Environment: ${debugData.environment?.userAgent || 'unknown'}`,
-                        `🔍 PrestaShop API: ${debugData.prestashopTest?.working ? '✅ Funguje' : '❌ Nefunguje'}`,
-                        `🔍 Response status: ${debugData.prestashopTest?.status || 'N/A'}`,
-                        `🔍 Error: ${debugData.prestashopTest?.error || 'Žádná chyba'}`,
-                        '🔍 Detaily uloženy do console.log'
-                      ]);
-                      
-                      // Get server logs too
-                      const logsResponse = await fetch('/api/logs');
-                      const logsData = await logsResponse.json();
-                      setServerLogs(logsData.map((log: any) => `${log.time}: ${log.log}`));
-                      
-                    } catch (error) {
-                      console.error('Debug failed:', error);
-                      setConnectionLogs(prev => [...prev, `❌ Debug failed: ${error}`]);
-                    }
-                  }}
+                  onClick={runDiagnostic}
+                  disabled={isDiagnosticRunning}
                   className="bg-purple-600 text-white hover:bg-purple-700 w-full"
                 >
-                  🔍 Spustit diagnostiku pro produkci
+                  {isDiagnosticRunning ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Spouštím diagnostiku...
+                    </>
+                  ) : (
+                    '🔍 Spustit diagnostiku pro produkci'
+                  )}
                 </Button>
+
+                {connectionLogs.length > 0 && (
+                  <div className="border rounded-lg p-4">
+                    <h4 className="font-medium mb-2">Výsledky diagnostiky:</h4>
+                    <pre className="text-xs bg-black text-green-400 p-3 rounded overflow-auto max-h-60 border font-mono">
+                      {connectionLogs.join('\n')}
+                    </pre>
+                  </div>
+                )}
                 
                 <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded">
                   <p><strong>Tip:</strong> Pokud v produkci nevidíte logy, použijte tuto diagnostiku pro detailní analýzu problémů s API.</p>
