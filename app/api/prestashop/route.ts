@@ -546,12 +546,16 @@ async function createOrder(orderData: any) {
   console.log('Creating order in PrestaShop:', orderData);
   
   try {
+    // Fix: Extract data from proper structure (production sends data nested)
+    const actualData = orderData.data || orderData;
+    console.log('Extracted order data:', actualData);
+    
     // First create customer if needed
     console.log('Calling createCustomer function directly...');
     const customerResult = await createCustomer({
-      firstName: orderData.firstName,
-      lastName: orderData.lastName,
-      email: orderData.email
+      firstName: actualData.firstName,
+      lastName: actualData.lastName,
+      email: actualData.email
     });
     
     console.log('Customer creation result:', customerResult);
@@ -572,7 +576,7 @@ async function createOrder(orderData: any) {
         customerId: 'mock-' + Math.floor(Math.random() * 1000),
         order: {
           id: mockOrderId,
-          total: orderData.orderDetails?.total || 12.90,
+          total: actualData.orderDetails?.total || 12.90,
           status: 'pending_payment'
         },
         message: 'Mock order created (customer ID validation failed)',
@@ -584,14 +588,14 @@ async function createOrder(orderData: any) {
     // Mock customer is still valid for creating real addresses, carts, and orders
     console.log(`Customer ready (mock: ${customerData.mock}), proceeding with order creation...`);
     
-    // Create address for customer
+    // Create address for customer - Fix data extraction
     const addressId = await createAddress(customerId, {
-      firstName: orderData.firstName,
-      lastName: orderData.lastName,
-      street: orderData.street,
-      city: orderData.city,
-      postalCode: orderData.postalCode,
-      phone: orderData.phone
+      firstName: actualData.firstName,
+      lastName: actualData.lastName,
+      street: actualData.address?.street || actualData.street,
+      city: actualData.address?.city || actualData.city,
+      postalCode: actualData.address?.zipCode || actualData.postalCode,
+      phone: actualData.phone
     });
     
     // Create cart first (required for orders)
@@ -611,10 +615,10 @@ async function createOrder(orderData: any) {
     <current_state><![CDATA[1]]></current_state>
     <payment><![CDATA[Credit Card]]></payment>
     <module><![CDATA[bankwire]]></module>
-    <total_paid><![CDATA[15.99]]></total_paid>
-    <total_paid_real><![CDATA[15.99]]></total_paid_real>
-    <total_products><![CDATA[15.99]]></total_products>
-    <total_products_wt><![CDATA[15.99]]></total_products_wt>
+    <total_paid><![CDATA[${actualData.orderDetails?.total || 15.99}]]></total_paid>
+    <total_paid_real><![CDATA[${actualData.orderDetails?.total || 15.99}]]></total_paid_real>
+    <total_products><![CDATA[${actualData.orderDetails?.total || 15.99}]]></total_products>
+    <total_products_wt><![CDATA[${actualData.orderDetails?.total || 15.99}]]></total_products_wt>
     <total_shipping><![CDATA[0]]></total_shipping>
     <secure_key><![CDATA[b44a6d9efd700ead73a366cc8877efb3]]></secure_key>
   </order>
@@ -659,7 +663,7 @@ async function createOrder(orderData: any) {
       customerId: 'mock-' + Math.floor(Math.random() * 1000),
       order: {
         id: mockOrderId,
-        total: orderData.orderDetails?.total || 12.90,
+        total: orderData.orderDetails?.total || orderData.data?.orderDetails?.total || 12.90,
         status: 'pending_payment'
       },
       message: 'Mock order created (PrestaShop API error)',
@@ -809,24 +813,72 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+  
   try {
     const body = await request.json();
-    console.log('API request received:', body);
+    console.log(`🚀 [${requestId}] API request received:`, {
+      type: body.type || 'order',
+      timestamp: new Date().toISOString(),
+      userAgent: request.headers.get('user-agent')?.substring(0, 50) || 'unknown',
+      origin: request.headers.get('origin') || 'unknown',
+      bodyKeys: Object.keys(body)
+    });
+
+    // Enhanced logging for order type detection
+    if (body.type === 'order_test' || (!body.type && body.firstName)) {
+      console.log(`📦 [${requestId}] Order creation test detected`);
+      
+      // Log environment info for debugging
+      console.log(`🔧 [${requestId}] Environment check:`, {
+        nodeEnv: process.env.NODE_ENV,
+        vercelRegion: process.env.VERCEL_REGION || 'unknown',
+        hasCustomApiKey: !!(process.env.PRESTASHOP_API_KEY),
+        apiTimeout: '8000ms'
+      });
+    }
 
     if (body.type === 'contact') {
+      console.log(`📧 [${requestId}] Contact message processing`);
       const result = await createCustomerMessage(body);
+      
+      const duration = Date.now() - startTime;
+      console.log(`✅ [${requestId}] Contact message completed in ${duration}ms`);
       return NextResponse.json(result);
     }
 
-    // Handle order creation (existing functionality)
+    // Enhanced order creation logging
+    console.log(`📦 [${requestId}] Creating order in PrestaShop...`);
     const result = await createOrder(body);
-    return NextResponse.json(result);
+    
+    const duration = Date.now() - startTime;
+    const resultData = await result.json();
+    
+    console.log(`✅ [${requestId}] Order processing completed in ${duration}ms:`, {
+      success: resultData.success,
+      orderId: resultData.orderId,
+      customerId: resultData.customerId,
+      mock: resultData.mock || false,
+      message: resultData.message
+    });
+    
+    return NextResponse.json(resultData);
 
   } catch (error: any) {
-    console.error('API Error:', error);
+    const duration = Date.now() - startTime;
+    console.error(`❌ [${requestId}] API Error after ${duration}ms:`, {
+      message: error.message,
+      name: error.name,
+      cause: error.cause,
+      stack: error.stack?.substring(0, 200) + '...' || 'No stack trace'
+    });
+    
     return NextResponse.json({ 
       success: false, 
-      error: error.message 
+      error: error.message,
+      requestId: requestId,
+      duration: duration
     }, { status: 500 });
   }
 }

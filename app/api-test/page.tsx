@@ -389,6 +389,56 @@ export default function APITestPage() {
                 <p className="text-muted-foreground">JSON</p>
               </div>
             </div>
+            
+            {/* Enhanced Debug Section */}
+            <div className="mt-6 pt-6 border-t">
+              <h3 className="font-semibold mb-4 text-lg">🔍 Pokročilá diagnostika</h3>
+              <div className="space-y-3">
+                <Button
+                  onClick={async () => {
+                    try {
+                      setConnectionLogs(['🔍 Spouštím pokročilou diagnostiku...']);
+                      
+                      // Call debug endpoint
+                      const debugResponse = await fetch('/api/debug', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ test: 'production_debug' })
+                      });
+                      
+                      const debugData = await debugResponse.json();
+                      console.log('🔍 Debug data:', debugData);
+                      
+                      setConnectionLogs(prev => [
+                        ...prev,
+                        `🔍 Environment: ${debugData.environment?.userAgent || 'unknown'}`,
+                        `🔍 PrestaShop API: ${debugData.prestashopTest?.working ? '✅ Funguje' : '❌ Nefunguje'}`,
+                        `🔍 Response status: ${debugData.prestashopTest?.status || 'N/A'}`,
+                        `🔍 Error: ${debugData.prestashopTest?.error || 'Žádná chyba'}`,
+                        '🔍 Detaily uloženy do console.log'
+                      ]);
+                      
+                      // Get server logs too
+                      const logsResponse = await fetch('/api/logs');
+                      const logsData = await logsResponse.json();
+                      setServerLogs(logsData.map((log: any) => `${log.time}: ${log.log}`));
+                      
+                    } catch (error) {
+                      console.error('Debug failed:', error);
+                      setConnectionLogs(prev => [...prev, `❌ Debug failed: ${error}`]);
+                    }
+                  }}
+                  className="bg-purple-600 text-white hover:bg-purple-700 w-full"
+                >
+                  🔍 Spustit diagnostiku pro produkci
+                </Button>
+                
+                <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded">
+                  <p><strong>Tip:</strong> Pokud v produkci nevidíte logy, použijte tuto diagnostiku pro detailní analýzu problémů s API.</p>
+                  <p>Všechny výsledky se ukládají také do browser console (F12 → Console).</p>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
