@@ -15,7 +15,7 @@ const prestashopAPI = axios.create({
   headers: {
     'Content-Type': 'application/xml'
   },
-  timeout: 10000
+  timeout: 30000 // Increased from 10s to 30s for slow PrestaShop servers
 });
 
 
@@ -60,7 +60,7 @@ async function testConnection() {
       
       try {
         const config: any = {
-          timeout: 15000,
+          timeout: 30000,
           headers: test.headers
         };
         
@@ -128,7 +128,7 @@ async function createCustomer(customerData: any) {
             headers: {
               'Content-Type': 'application/xml'
             },
-            timeout: 8000
+            timeout: 30000
           }
         );
         
@@ -288,7 +288,7 @@ async function createCustomer(customerData: any) {
           `${PRESTASHOP_URL}/api/customers?filter[email]=${encodeURIComponent(customerData.email)}&display=full&ws_key=${API_KEY}`,
           {
             headers: { 'Content-Type': 'application/xml' },
-            timeout: 8000
+            timeout: 30000
           }
         );
         
@@ -337,23 +337,10 @@ async function createCustomer(customerData: any) {
       });
     }
     
-    // For timeouts or other errors, use mock mode
+    // For timeouts, throw error to trigger retry
     if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-      console.log('🔄 Connection timeout, using mock customer');
-      const mockCustomerId = Math.floor(Math.random() * 10000) + 1000;
-      return NextResponse.json({ 
-        success: true, 
-        customerId: mockCustomerId,
-        customer: {
-          id: mockCustomerId,
-          firstname: customerData.firstName,
-          lastname: customerData.lastName,
-          email: customerData.email
-        },
-        message: '⚠️ Mock customer created - API timeout',
-        mock: true,
-        apiError: 'Connection timeout - using fallback mode'
-      });
+      console.log('❌ Connection timeout - PrestaShop server is slow');
+      throw new Error(`PrestaShop API timeout after 30 seconds. Server response too slow.`);
     }
     
     return NextResponse.json({ 
@@ -445,15 +432,14 @@ async function createCart(customerId: any, addressId: any) {
       data: error.response?.data ? String(error.response.data).substring(0, 300) : 'No response data'
     });
     
-    // For timeout errors, still try to use mock mode gracefully
+    // For timeout errors, throw to stop order creation
     if (error.code === 'ETIMEDOUT') {
-      console.log('🔄 Cart API timeout - using mock cart ID for continuity');
+      console.log('❌ Cart API timeout - PrestaShop server too slow');
+      throw new Error(`Cart creation timeout after 30 seconds`);
     } else {
-      console.log('🔄 Cart API error - using mock cart ID for continuity');
+      console.log('❌ Cart API error - stopping order creation');
+      throw new Error(`Cart creation failed: ${error.message}`);
     }
-    
-    // Return mock cart ID if creation fails
-    return '1';
   }
 }
 
@@ -530,15 +516,14 @@ async function createAddress(customerId: any, addressData: any) {
       data: error.response?.data ? String(error.response.data).substring(0, 300) : 'No response data'
     });
     
-    // For timeout errors, still try to use mock mode gracefully
+    // For timeout errors, throw to stop order creation
     if (error.code === 'ETIMEDOUT') {
-      console.log('🔄 Address API timeout - using mock address ID for continuity');
+      console.log('❌ Address API timeout - PrestaShop server too slow');
+      throw new Error(`Address creation timeout after 30 seconds`);
     } else {
-      console.log('🔄 Address API error - using mock address ID for continuity');
+      console.log('❌ Address API error - stopping order creation');
+      throw new Error(`Address creation failed: ${error.message}`);
     }
-    
-    // Return mock address ID if creation fails
-    return '1';
   }
 }
 
@@ -568,20 +553,13 @@ async function createOrder(orderData: any) {
     
     // Enhanced validation for customer ID before proceeding
     if (!customerId || customerId === 'unknown' || customerId === 'undefined' || customerId === undefined) {
-      console.log('❌ Invalid customer ID, using fallback');
-      const mockOrderId = Math.floor(Math.random() * 10000) + 5000;
+      console.log('❌ Invalid customer ID - stopping order creation');
       return NextResponse.json({ 
-        success: true, 
-        orderId: mockOrderId,
-        customerId: 'mock-' + Math.floor(Math.random() * 1000),
-        order: {
-          id: mockOrderId,
-          total: actualData.orderDetails?.total || 12.90,
-          status: 'pending_payment'
-        },
-        message: 'Mock order created (customer ID validation failed)',
-        mock: true
-      });
+        success: false, 
+        error: 'Chyba při vytváření zákazníka',
+        details: 'Nepodařilo se vytvořit zákaznický účet v PrestaShop',
+        message: 'Zkuste prosím objednávku později nebo kontaktujte podporu'
+      }, { status: 500 });
     }
   
     // Continue with real API even if customer creation used mock mode
@@ -654,22 +632,16 @@ async function createOrder(orderData: any) {
       data: error.response?.data ? String(error.response.data).substring(0, 300) : 'No response data'
     });
     
-    // Fallback to mock order on any error
-    console.log('🔄 Falling back to mock order creation');
-    const mockOrderId = Math.floor(Math.random() * 10000) + 5000;
+    // Return error instead of mock order
+    console.log('❌ Order creation failed - returning error to user');
     return NextResponse.json({ 
-      success: true, 
-      orderId: mockOrderId,
-      customerId: 'mock-' + Math.floor(Math.random() * 1000),
-      order: {
-        id: mockOrderId,
-        total: orderData.orderDetails?.total || orderData.data?.orderDetails?.total || 12.90,
-        status: 'pending_payment'
-      },
-      message: 'Mock order created (PrestaShop API error)',
-      mock: true,
-      apiError: error.message
-    });
+      success: false, 
+      error: 'PrestaShop API nedostupné',
+      details: `Chyba při vytváření objednávky: ${error.message}`,
+      code: error.code,
+      apiTimeout: error.code === 'ETIMEDOUT',
+      message: 'Zkuste prosím objednávku později nebo kontaktujte podporu'
+    }, { status: 500 });
   }
 }
 
@@ -835,7 +807,7 @@ export async function POST(request: Request) {
         nodeEnv: process.env.NODE_ENV,
         vercelRegion: process.env.VERCEL_REGION || 'unknown',
         hasCustomApiKey: !!(process.env.PRESTASHOP_API_KEY),
-        apiTimeout: '8000ms'
+        apiTimeout: '30000ms'
       });
     }
 
